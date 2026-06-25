@@ -8,7 +8,13 @@ set -euo pipefail
 BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODEL="$BASE/models/ggml-large-v3-turbo.bin"
 LANG_CODE="${WHISPER_LANG:-ru}"   # язык вебинара; переопредели: WHISPER_LANG=en ./process.sh
+SUMMARY_PROVIDER="${SUMMARY_PROVIDER:-none}" # none | auto | claude | codex
 INPUT="${1:-}"
+
+case "$SUMMARY_PROVIDER" in
+  none|auto|claude|codex) ;;
+  *) echo "❌ SUMMARY_PROVIDER должен быть: none, auto, claude или codex"; exit 1 ;;
+esac
 
 make_session_name() {
   local source="$1"
@@ -98,7 +104,7 @@ done
 WORDS=$(wc -w < "$TRANSCRIPT" | tr -d ' ')
 echo "✅ Транскрипт готов: $TRANSCRIPT ($WORDS слов)"
 
-# ---- Саммари через локальный LLM ----
+# ---- Саммари через внешний CLI по явному opt-in ----
 SUMMARY="$SESSDIR/summary.md"
 PROMPTFILE="$SESSDIR/.prompt.txt"
 {
@@ -124,19 +130,30 @@ EOP
 echo "🧠 Делаю саммари…"
 : > "$SUMMARY"
 
+if [ "$SUMMARY_PROVIDER" = "none" ]; then
+  rm -f "$PROMPTFILE" "$SUMMARY"
+  echo "ℹ️  Саммари пропущено: по умолчанию транскрипт не отправляется во внешние CLI."
+  echo "   Если нужен конспект через claude/codex, запусти: SUMMARY_PROVIDER=auto ./process.sh <сессия>"
+  exit 0
+fi
+
 # 1) claude CLI как one-shot генератор (без агентного цикла)
+if [ "$SUMMARY_PROVIDER" = "auto" ] || [ "$SUMMARY_PROVIDER" = "claude" ]; then
 if command -v claude >/dev/null 2>&1; then
   claude -p --model claude-sonnet-4-6 \
     --allowedTools "" --strict-mcp-config --setting-sources "" \
     --system-prompt "Ты аккуратный редактор, делающий конспекты. Отвечай только готовым текстом саммари." \
     < "$PROMPTFILE" > "$SUMMARY" 2>/dev/null || true
 fi
+fi
 
 # 2) fallback — codex CLI (ChatGPT-подписка)
-if [ ! -s "$SUMMARY" ] && command -v codex >/dev/null 2>&1; then
+if [ ! -s "$SUMMARY" ] && { [ "$SUMMARY_PROVIDER" = "auto" ] || [ "$SUMMARY_PROVIDER" = "codex" ]; }; then
+if command -v codex >/dev/null 2>&1; then
   codex exec --skip-git-repo-check --ephemeral --color never \
     --sandbox read-only -c model_reasoning_effort=low \
     --output-last-message "$SUMMARY" - < "$PROMPTFILE" >/dev/null 2>&1 || true
+fi
 fi
 
 rm -f "$PROMPTFILE"

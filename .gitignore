@@ -5,7 +5,22 @@ models/
 out/
 
 *.wav
+*.m4a
+*.mp3
+*.mp4
+*.mov
+*.aac
+*.caf
+*.aif
+*.aiff
+*.flac
+*.ogg
+*.opus
+*.webm
 *.bin
 *.html
+transcript.txt
+summary.md
+chunk_*.txt
 .DS_Store
 __pycache__/
